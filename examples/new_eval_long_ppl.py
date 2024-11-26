@@ -5,19 +5,80 @@ import sys
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
+from streaming_llm.kv_cache import StartRecentKVCache
+from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
 
-def evaluate_perplexity(model, tokenizer, dataset, max_samples=10, max_eval_tokens=1000):
+def get_kv_cache_params(model):
+    """
+    Determine KV cache dimensions based on model type
+    """
+    model_type = model.config.model_type.lower()
+    
+    if "llama" in model_type:
+        k_seq_dim = v_seq_dim = 2
+    elif "mpt" in model_type:
+        v_seq_dim = 2
+        k_seq_dim = 3
+    elif "pythia" in model_type:
+        k_seq_dim = v_seq_dim = 2
+    elif "falcon" in model_type:
+        v_seq_dim = 1
+        k_seq_dim = 1
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+    
+    return k_seq_dim, v_seq_dim
+
+def evaluate_perplexity(
+    model, 
+    tokenizer, 
+    dataset, 
+    max_samples=10, 
+    max_eval_tokens=1000,
+    start_size=4,
+    recent_size=512,
+    enable_kv_cache=True,
+    kv_cache_type='start_recent'
+):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     model.eval()
+
+    # Prepare KV Cache
+    if enable_kv_cache:
+        k_seq_dim, v_seq_dim = get_kv_cache_params(model)
+        
+        if enable_kv_cache == False:
+            kv_cache = None
+            print("KV cache disabled")
+            kv_cache_type = "no_cache"
+        elif kv_cache_type == 'start_recent':
+            kv_cache = StartRecentKVCache(
+                start_size=start_size,
+                recent_size=recent_size,
+                k_seq_dim=k_seq_dim,
+                v_seq_dim=v_seq_dim,
+            )
+        elif kv_cache_type == 'llama_index':
+            kv_cache = LlamaIndexKVCache(
+                start_size=start_size,
+                recent_size=recent_size,
+                k_seq_dim=k_seq_dim,
+                v_seq_dim=v_seq_dim,
+            )
+        else:
+            raise ValueError(f"Unknown KV cache type: {kv_cache_type}")
+    else:
+        kv_cache = None
+        print("KV cache disabled")
 
     nlls = []
     loss_fn = CrossEntropyLoss(reduction="none")
     num_eval_tokens = 0
 
     # Create output directory if it doesn't exist
-    os.makedirs("output", exist_ok=True)
-    log_file = open("output/log.txt", "w")
+    os.makedirs("outputs", exist_ok=True)
+    log_file = open(f"outputs/log_{kv_cache_type}.txt", "w")
 
     try:
         for text in dataset["text"][:max_samples]:
@@ -57,6 +118,10 @@ def evaluate_perplexity(model, tokenizer, dataset, max_samples=10, max_eval_toke
                     logits = outputs.logits.view(-1, model.config.vocab_size)
                     past_key_values = outputs.past_key_values
 
+                    # Apply KV cache if enabled
+                    if kv_cache is not None:
+                        past_key_values = kv_cache(past_key_values)
+
                     # Compute loss
                     label = target.view(-1)
                     neg_log_likelihood = loss_fn(logits, label)
@@ -89,7 +154,7 @@ def evaluate_perplexity(model, tokenizer, dataset, max_samples=10, max_eval_toke
         print(f"Perplexity: {ppl.item()}")
         
         # Write perplexity to file
-        with open("output/ppl.txt", "w") as f:
+        with open(f"outputs/ppl_{kv_cache_type}.txt", "w") as f:
             f.write(f"{ppl.item()}\n")
         
         return ppl.item()
@@ -106,8 +171,16 @@ def main():
     # Load dataset
     dataset = load_dataset("wikitext", "wikitext-103-v1", split="test")
 
-    # Evaluate perplexity
-    evaluate_perplexity(model, tokenizer, dataset)
+    # Evaluate perplexity with KV cache
+    evaluate_perplexity(
+        model, 
+        tokenizer, 
+        dataset, 
+        enable_kv_cache=True,  # Enable KV cache
+        kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
+        start_size=4,
+        recent_size=512
+    )
 
 if __name__ == "__main__":
     main()
