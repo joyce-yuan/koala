@@ -5,6 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
 from streaming_llm.kv_cache import StartRecentKVCache
+from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
 from streaming_llm.utils import parse_args, load
 
 device = "cuda"
@@ -38,8 +39,16 @@ if args.enable_start_recent_kv_cache:
         k_seq_dim=k_seq_dim,
         v_seq_dim=v_seq_dim,
     )
+# Replaced with LlamaIndexKVCache to use RAG.
+    # kv_cache = LllamaIndexKVCache(
+    #     start_size=args.start_size,
+    #     recent_size=args.recent_size,
+    #     k_seq_dim=k_seq_dim,
+    #     v_seq_dim=v_seq_dim,
+    # )
 else:
     kv_cache = None
+    print("No cache")
 
 if args.enable_pos_shift:
     if "llama" in model.config.model_type:
