@@ -13,6 +13,12 @@ import sys
 from tqdm import tqdm
 from streaming_llm.utils import load, download_url, load_jsonl
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
+from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+)
+
 
 
 @torch.no_grad()
@@ -65,8 +71,16 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
         print("\n" + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
         input_ids = input_ids.to(model.device)
+
+        # store tokens in kv_cache 
+        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
         seq_len = input_ids.shape[1]
+        
         if kv_cache is not None:
+            
+            # store all tokens in kv_cache
+            kv_cache.store_tokens(tokens=tokens)
+
             space_needed = seq_len + max_gen_len
             past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
 
@@ -75,9 +89,65 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
         )
 
 
+def enable_streaming_llm_llama_index(model, start_size, recent_size):
+    if "llama" in model.config.model_type:
+        k_seq_dim = v_seq_dim = 2
+        from streaming_llm.pos_shift.modify_llama import (
+            enable_llama_pos_shift_attention,
+        )
+
+        enable_llama_pos_shift_attention(model)
+    elif "mpt" in model.config.model_type:
+        v_seq_dim = 2
+        k_seq_dim = 3
+    elif "gpt_neox" in model.config.model_type:
+        k_seq_dim = v_seq_dim = 2
+        from streaming_llm.pos_shift.modify_gpt_neox import (
+            enable_gpt_neox_pos_shift_attention,
+        )
+
+        enable_gpt_neox_pos_shift_attention(model)
+    elif "falcon" in model.config.model_type:
+        v_seq_dim = 1
+        k_seq_dim = 1
+        from streaming_llm.pos_shift.modify_falcon import (
+            enable_falcon_pos_shift_attention,
+        )
+
+        enable_falcon_pos_shift_attention(model)
+    else:
+        raise ValueError(f"got {model.config.model_type}")
+    kv_cache = LlamaIndexKVCache(
+        start_size=start_size,
+        recent_size=recent_size,
+        k_seq_dim=k_seq_dim,
+        v_seq_dim=v_seq_dim,
+    )
+    return kv_cache
+
+
 def main(args):
     model_name_or_path = args.model_name_or_path
-    model, tokenizer = load(model_name_or_path)
+    # model, tokenizer = load(model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name_or_path,
+        trust_remote_code=True,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=True,
+    )
+
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        else:
+            tokenizer.pad_token_id = 0
+
+    model.eval()
+
     test_filepath = os.path.join(args.data_root, "mt_bench.jsonl")
     print(f"Loading data from {test_filepath} ...")
 
@@ -94,7 +164,7 @@ def main(args):
         prompts += sample["turns"]
 
     if args.enable_streaming:
-        kv_cache = enable_streaming_llm(
+        kv_cache = enable_streaming_llm_llama_index(
             model, start_size=args.start_size, recent_size=args.recent_size
         )
     else:
@@ -120,3 +190,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args)
+
+

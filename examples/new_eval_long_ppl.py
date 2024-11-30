@@ -7,6 +7,8 @@ from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
 from streaming_llm.kv_cache import StartRecentKVCache
 from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
+from streaming_llm.utils import load, download_url, load_jsonl
+
 
 def get_kv_cache_params(model):
     """
@@ -40,7 +42,7 @@ def evaluate_perplexity(
     enable_kv_cache=True,
     kv_cache_type='start_recent'
 ):
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     model.to(device)
     model.eval()
 
@@ -164,9 +166,24 @@ def evaluate_perplexity(
 
 def main():
     # Load model and tokenizer
-    model_name = "lmsys/vicuna-13b-v1.3"
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model_name = "Jiayi-Pan/Tiny-Vicuna-1B"
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=True,
+    )
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        else:
+            tokenizer.pad_token_id = 0
+
+    # model, tokenizer = load(model_name)
 
     # Load dataset
     dataset = load_dataset("wikitext", "wikitext-103-v1", split="test")
@@ -177,7 +194,7 @@ def main():
         tokenizer, 
         dataset, 
         enable_kv_cache=True,  # Enable KV cache
-        kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
+        kv_cache_type='llama_index',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
         recent_size=512
     )
