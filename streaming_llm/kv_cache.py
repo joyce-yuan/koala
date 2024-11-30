@@ -41,6 +41,7 @@ class StartRecentKVCache:
         if past_key_values is None:
             return None
         seq_len = past_key_values[0][0].size(self.k_seq_dim)
+        # print(f"seq_len: {seq_len}, cache_size: {self.cache_size}, start_size: {self.start_size}, recent_size: {self.recent_size}")
         if seq_len <= self.cache_size:
             return past_key_values
         return [

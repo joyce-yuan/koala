@@ -102,7 +102,7 @@ def evaluate_perplexity(
             past_key_values = None
             
             # Iterate through the sequence
-            for idx in range(seq_len - 1):
+            for idx in tqdm(range(seq_len - 1)):
                 # Prepare input
                 current_input = input_ids[:, idx:idx+1]
                 target = input_ids[:, idx+1:idx+2]
@@ -176,10 +176,10 @@ def main():
         model, 
         tokenizer, 
         dataset, 
-        enable_kv_cache=True,  # Enable KV cache
+        enable_kv_cache=False,  # Enable KV cache
         kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
-        recent_size=512
+        recent_size=64
     )
 
 if __name__ == "__main__":
