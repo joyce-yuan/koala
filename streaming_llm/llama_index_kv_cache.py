@@ -48,19 +48,21 @@ class LlamaIndexKVCache:
         self.evicted_chunks: List[TextNode] = []
 
         self.vector_index = VectorStoreIndex([])
+        # self.test_retreive = False
+        self.counter = 0
 
 
         
     def store_tokens(self, tokens: List[str]):
         """Store token mapping for future reference"""
         
-        print(f"Stored tokens from {len(self.token_map)} to {len(self.token_map) + len(tokens)}, len: {len(tokens)}")
+        # print(f"Stored tokens from {len(self.token_map)} to {len(self.token_map) + len(tokens)}, len: {len(tokens)}")
         for i, token in enumerate(tokens):
             self.token_map[len(self.token_map)] = token
             
     def create_chunk_from_range(self, start: int, end: int) -> TextNode:
         """Create a TextNode from a range of tokens"""
-        print(f"Creating chunk from {start} to {end}, length of map is {len(self.token_map)}")
+        # print(f"Creating chunk from {start} to {end}, length of map is {len(self.token_map)}")
         # text = " ".join(self.token_map[i] for i in range(start, end))
         # create text from token map, we only want to include the numbers in the range that are 
         # present in the token map
@@ -83,11 +85,17 @@ class LlamaIndexKVCache:
         # self.vector_store.add(embedding, chunk)
         # self.evicted_chunks.append(chunk)
         
-    def retrieve_relevant_context(self, query_text: str, top_k: int = 3) -> List[str]:
+    def retrieve_relevant_context(self, query_text, top_k=3):
         """Retrieve relevant context from evicted tokens"""
-        query_embedding = self.embedding_model.get_text_embedding(query_text)
-        results = self.vector_store.query(query_embedding, top_k=top_k)
-        return [self.evicted_chunks[idx].text for idx, _ in results]
+        retriever = self.vector_index.as_retriever()
+        retriever.similarity_top_k = top_k
+        # query_embedding = self.embedding_model.get_text_embedding(query_text)
+        token_string = " ".join(query_text)
+
+        # results = retriever.retrieve(query_text)
+        results = retriever.retrieve(token_string)
+        # print(results)
+        return [result.text for result in results]
 
     def __call__(self, past_key_values):
         if past_key_values is None:
@@ -121,7 +129,7 @@ class LlamaIndexKVCache:
             for k, v in past_key_values
         ]
 
-    def evict_for_space(self, past_key_values, num_coming, mode="default"):
+    def evict_for_space(self, past_key_values, num_coming, mode="default", past_context=None):
         if past_key_values is None:
             return None
         seq_len = past_key_values[0][0].size(self.k_seq_dim)
@@ -132,6 +140,7 @@ class LlamaIndexKVCache:
         # default is evict from the middle
         evict_start = self.start_size
         evict_end = seq_len - self.recent_size + num_coming
+        self.counter += 1
 
         if mode == "evict_start": 
             evict_start = 0
@@ -152,6 +161,35 @@ class LlamaIndexKVCache:
         for i, entry in enumerate(self.token_map.keys()):
             new_tokens[i] = self.token_map[entry]
         self.token_map = new_tokens
+
+        if past_context:
+            print("Past key values: ", past_key_values)
+            # print("Past context: ", past_context)
+            embedded_past_context = self.embedding_model.get_text_embedding(past_context)
+            print("Embedded past context: ", embedded_past_context)
+            return [
+                [
+                    torch.cat(
+                        [
+                            self.k_slice(k, 0, self.start_size),
+                            self.k_slice(
+                                k, seq_len - self.recent_size + num_coming, seq_len
+                            ),
+                        ],
+                        dim=self.k_seq_dim,
+                    ),
+                    torch.cat(
+                        [
+                            self.v_slice(v, 0, self.start_size),
+                            self.v_slice(
+                                v, seq_len - self.recent_size + num_coming, seq_len
+                            ),
+                        ],
+                        dim=self.v_seq_dim,
+                    ),
+                ]
+                for k, v in past_key_values
+            ]
         
         return [
             [

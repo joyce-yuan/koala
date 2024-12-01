@@ -70,19 +70,38 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
         prompt = "USER: " + prompt + "\n\nASSISTANT: "
         print("\n" + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
+        
         input_ids = input_ids.to(model.device)
 
         # store tokens in kv_cache 
         tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
         seq_len = input_ids.shape[1]
+
+        
         
         if kv_cache is not None:
             
-            # store all tokens in kv_cache
-            kv_cache.store_tokens(tokens=tokens)
+            if idx != 2:
+                # store all tokens in kv_cache
+                kv_cache.store_tokens(tokens=tokens)
 
-            space_needed = seq_len + max_gen_len
-            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+                space_needed = seq_len + max_gen_len
+                past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+            else: 
+                print("Retrieving relevant context")
+                kv_cache.store_tokens(tokens=tokens)
+                # if we want to call with relevant context
+                past_context = kv_cache.retrieve_relevant_context(tokens)
+                past_context_string = " ".join(past_context)
+                past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
+                past_context_ids = past_context_ids.to(model.device)
+                past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
+                past_seq_len = past_context_ids.shape[1]
+
+                kv_cache.store_tokens(tokens=past_tokens)
+
+                space_needed = seq_len + max_gen_len + past_seq_len
+                past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
 
         past_key_values = greedy_generate(
             model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len
@@ -186,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--enable_streaming", action="store_true")
     parser.add_argument("--start_size", type=int, default=4)
-    parser.add_argument("--recent_size", type=int, default=2000)
+    parser.add_argument("--recent_size", type=int, default=128)
     args = parser.parse_args()
 
     main(args)
