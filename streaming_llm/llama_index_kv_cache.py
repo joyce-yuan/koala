@@ -3,8 +3,9 @@ import os
 from typing import List, Tuple, Optional, Dict
 from llama_index.core.schema import TextNode
 from llama_index.core.vector_stores import SimpleVectorStore
+from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
-from transformers import AutoTokenizer, AutoModel
+
 
 
 def slice2d(x, start, end):
@@ -21,10 +22,6 @@ DIM_TO_SLICE = {
     2: slice2d,
     3: slice3d,
 }
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 class LlamaIndexKVCache:
     def __init__(
@@ -50,14 +47,14 @@ class LlamaIndexKVCache:
         self.token_map: Dict[int, str] = {}  # Maps position to token text
         self.evicted_chunks: List[TextNode] = []
 
-        # self.embedding_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/distilbert-base-nli-stsb-mean-tokens")
-        # self.embedding_model = AutoModel.from_pretrained("sentence-transformers/distilbert-base-nli-stsb-mean-tokens")
+        self.vector_index = VectorStoreIndex([])
+
 
         
     def store_tokens(self, tokens: List[str]):
         """Store token mapping for future reference"""
         
-        print(f"Stored tokens from {len(self.token_map)} to {len(self.token_map) + len(tokens)}, {len(tokens)}")
+        print(f"Stored tokens from {len(self.token_map)} to {len(self.token_map) + len(tokens)}, len: {len(tokens)}")
         for i, token in enumerate(tokens):
             self.token_map[len(self.token_map)] = token
             
@@ -74,24 +71,17 @@ class LlamaIndexKVCache:
                     text += " "
                 text += self.token_map[i]
         node = TextNode(text=text)
-        # node = self.embedding_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
         return node
         
     def index_evicted_tokens(self, start: int, end: int):
         """Index evicted tokens in LlamaIndex"""
         chunk = self.create_chunk_from_range(start, end)
-        # print(f"Indexing chunk: {chunk.text}")
-
-        # ran into openai.RateLimitError - exceeded current quota
-        # print(f"Indexing chunk: {chunk}")
-        # with torch.no_grad():
-        #     model_output = self.embedding_model(**chunk)
-        # embedding = mean_pooling(model_output, chunk["attention_mask"])
-        # self.vector_store.add(embedding)
-
-        embedding = self.embedding_model.get_text_embedding(chunk.text)
-        self.vector_store.add(embedding, chunk)
-        self.evicted_chunks.append(chunk)
+        
+        self.vector_index.insert_nodes([chunk])
+        
+        # embedding = self.embedding_model.get_text_embedding(chunk.text)
+        # self.vector_store.add(embedding, chunk)
+        # self.evicted_chunks.append(chunk)
         
     def retrieve_relevant_context(self, query_text: str, top_k: int = 3) -> List[str]:
         """Retrieve relevant context from evicted tokens"""
@@ -139,7 +129,7 @@ class LlamaIndexKVCache:
         if seq_len + num_coming <= self.cache_size:
             return past_key_values
         
-
+        # default is evict from the middle
         evict_start = self.start_size
         evict_end = seq_len - self.recent_size + num_coming
 
@@ -147,9 +137,8 @@ class LlamaIndexKVCache:
             evict_start = 0
             evict_end = seq_len - self.recent_size + num_coming
 
-        ########## default ######################
+        
         # Index tokens that will be evicted
-
         self.index_evicted_tokens(evict_start, evict_end)
 
         # update token map according to the eviction
