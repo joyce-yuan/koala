@@ -79,13 +79,13 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
         
         if kv_cache is not None:
             
-            if idx != 2:
+            if idx < 2:
                 # store all tokens in kv_cache
                 kv_cache.store_tokens(tokens=tokens)
 
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
-            else: 
+            elif idx == 2: 
                 print("Retrieving relevant context")
                 kv_cache.store_tokens(tokens=tokens)
                 # if we want to call with relevant context
@@ -100,6 +100,8 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
 
                 space_needed = seq_len + max_gen_len + past_seq_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
+            else:
+                raise ValueError(f"stop here")
 
         past_key_values = greedy_generate(
             model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len
@@ -165,15 +167,15 @@ def main(args):
 
     model.eval()
 
-    test_filepath = os.path.join(args.data_root, "mt_bench.jsonl")
+    test_filepath = os.path.join("examples", "data", "secret_words.jsonl")
     print(f"Loading data from {test_filepath} ...")
 
-    if not os.path.exists(test_filepath):
-        download_url(
-            "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
-            args.data_root,
-        )
-        os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
+    # if not os.path.exists(test_filepath):
+    #     download_url(
+    #         "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
+    #         args.data_root,
+    #     )
+    #     os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
 
     list_data = load_jsonl(test_filepath)
     prompts = []
@@ -198,6 +200,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        # "--model_name_or_path", type=str, default="lmsys/vicuna-13b-v1.3"
+        #  "--model_name_or_path", type=str, default="lmsys/vicuna-7b-v1.5"
         "--model_name_or_path", type=str, default="Jiayi-Pan/Tiny-Vicuna-1B"
     )
     parser.add_argument("--data_root", type=str, default="data/")
