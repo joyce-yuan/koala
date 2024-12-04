@@ -68,39 +68,41 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
         prompt = "USER: " + prompt + "\n\nASSISTANT: "
         print("\n" + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
-        
         input_ids = input_ids.to(model.device)
-
-        # store tokens in kv_cache 
-        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
         seq_len = input_ids.shape[1]
 
-        
+        # Tokenize the prompt
+        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
         
         if kv_cache is not None:
-            
-            if idx < 2:
-                # store all tokens in kv_cache
-                kv_cache.store_tokens(tokens=tokens)
+            # store all tokens in kv_cache
+            kv_cache.store_tokens(tokens=tokens)
 
+            # Get past key values and evict for space
+            if idx < 2:
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
             elif idx == 2: 
+                # For testing, try retrieving relevant past context for the second prompt
                 print("Retrieving relevant context")
-                kv_cache.store_tokens(tokens=tokens)
-                # if we want to call with relevant context
+
+                # Query past context with the current prompt
                 past_context = kv_cache.retrieve_relevant_context(tokens)
                 past_context_string = " ".join(past_context)
                 past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
                 past_context_ids = past_context_ids.to(model.device)
-                past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
+                
+                # Get the length of past context
                 past_seq_len = past_context_ids.shape[1]
-
+                # Tokenize the past context so we can store it
+                past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
                 kv_cache.store_tokens(tokens=past_tokens)
 
+                # Get past key values with past context included in cache
                 space_needed = seq_len + max_gen_len + past_seq_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
             else:
+                # For testing, it stops after the second prompt
                 raise ValueError(f"stop here")
 
         past_key_values = greedy_generate(
@@ -168,14 +170,15 @@ def main(args):
     model.eval()
 
     test_filepath = os.path.join("examples", "data", "secret_words.jsonl")
+    
     print(f"Loading data from {test_filepath} ...")
 
-    # if not os.path.exists(test_filepath):
-    #     download_url(
-    #         "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
-    #         args.data_root,
-    #     )
-    #     os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
+    if not os.path.exists(test_filepath):
+        download_url(
+            "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
+            args.data_root,
+        )
+        os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
 
     list_data = load_jsonl(test_filepath)
     prompts = []
