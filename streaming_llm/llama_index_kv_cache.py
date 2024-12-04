@@ -167,6 +167,7 @@ class LlamaIndexKVCache:
             # print("Past context: ", past_context)
             embedded_past_context = self.embedding_model.get_text_embedding(past_context)
             print("Embedded past context: ", embedded_past_context)
+            #return embedded_past_context
             return [
                 [
                     torch.cat(
@@ -189,7 +190,7 @@ class LlamaIndexKVCache:
                     ),
                 ]
                 for k, v in past_key_values
-            ]
+            ] + embedded_past_context
         
         return [
             [
