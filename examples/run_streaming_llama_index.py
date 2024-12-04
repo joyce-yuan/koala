@@ -19,8 +19,6 @@ from transformers import (
     AutoModelForCausalLM,
 )
 
-
-
 @torch.no_grad()
 def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len):
     outputs = model(
