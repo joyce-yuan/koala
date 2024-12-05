@@ -37,8 +37,8 @@ def evaluate_perplexity(
     dataset, 
     max_samples=10, 
     max_eval_tokens=1000,
-    start_size=4,
-    recent_size=512,
+    start_size=4, # amount of sink tokens
+    recent_size=512, # cache size
     enable_kv_cache=True,
     kv_cache_type='start_recent'
 ):
@@ -118,15 +118,17 @@ def evaluate_perplexity(
                     # If llama index kv cache, store tokens and retrieve relevant context.
                     elif kv_cache_type == 'llama_index':
                         # Tokenize the prompt.
-                        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+                        # tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+                        tokens = tokenizer.convert_ids_to_tokens(target)
                         # Store all tokens in kv cache.
                         kv_cache.store_tokens(tokens=tokens)
 
                         seq_len = input_ids.shape[1]
 
-                        if idx < 2:
+                        if idx < 1:
                             # Skip retrieving relevant context for the first two prompts.
-                            space_needed = seq_len + max_eval_len
+                            # space_needed = seq_len + max_eval_tokens
+                            space_needed = 2 # the current input (1 token) + 1 token
                             past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
                         else: 
                             print("Retrieving relevant context")
@@ -143,7 +145,8 @@ def evaluate_perplexity(
                             kv_cache.store_tokens(tokens=past_tokens)
 
                             # Get past key values with past context included in cache
-                            space_needed = seq_len + max_eval_len + past_seq_len
+                            # space_needed = seq_len + max_eval_tokens + past_seq_len
+                            space_needed = 1 + past_seq_len # Don't need seq_len because it has already been stored.
                             past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
 
 
@@ -198,7 +201,8 @@ def evaluate_perplexity(
         print("No negative log-likelihoods collected. Check your data and model.")
         return None
 
-def main():
+# Evaluation function for the start recent cache enabled
+def normal_cache_eval():
     # Load model and tokenizer
     model_name = "Jiayi-Pan/Tiny-Vicuna-1B"
     tokenizer = AutoTokenizer.from_pretrained(
@@ -222,16 +226,58 @@ def main():
     # Load dataset
     dataset = load_dataset("wikitext", "wikitext-103-v1", split="test")
 
+    print("Evaluating with normal cache")
     # Evaluate perplexity with KV cache
     evaluate_perplexity(
         model, 
         tokenizer, 
         dataset, 
-        enable_kv_cache=False,  # Enable KV cache
+        enable_kv_cache=True,  # Enable KV cache
         kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
         recent_size=64
     )
+
+# Evaluation function for the start recent cache enabled
+def llama_index_cache_eval():
+    # Load model and tokenizer
+    model_name = "Jiayi-Pan/Tiny-Vicuna-1B"
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_name,
+        trust_remote_code=True,
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map="auto",
+        torch_dtype=torch.float16,
+        trust_remote_code=True,
+    )
+    if tokenizer.pad_token_id is None:
+        if tokenizer.eos_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        else:
+            tokenizer.pad_token_id = 0
+
+    # model, tokenizer = load(model_name)
+
+    # Load dataset
+    dataset = load_dataset("wikitext", "wikitext-103-v1", split="test")
+
+    print("Evaluating with llama index cache")
+    # Evaluate perplexity with KV cache
+    evaluate_perplexity(
+        model, 
+        tokenizer, 
+        dataset, 
+        enable_kv_cache=True,  # Enable KV cache
+        kv_cache_type='llama_index',  # Choose between 'start_recent' and 'llama_index'
+        start_size=4,
+        recent_size=64
+    )
+
+def main():
+    # normal_cache_eval()
+    llama_index_cache_eval()
 
 if __name__ == "__main__":
     main()
