@@ -109,6 +109,44 @@ def evaluate_perplexity(
                 current_input = input_ids[:, idx:idx+1]
                 target = input_ids[:, idx+1:idx+2]
 
+                # Apply KV cache if enabled
+                if kv_cache is not None:
+                    if kv_cache_type == 'start_recent':
+                        past_key_values = kv_cache(past_key_values)
+
+                    # TODO: test!
+                    # If llama index kv cache, store tokens and retrieve relevant context.
+                    elif kv_cache_type == 'llama_index':
+                        # Tokenize the prompt.
+                        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+                        # Store all tokens in kv cache.
+                        kv_cache.store_tokens(tokens=tokens)
+
+                        seq_len = input_ids.shape[1]
+
+                        if idx < 2:
+                            # Skip retrieving relevant context for the first two prompts.
+                            space_needed = seq_len + max_eval_len
+                            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+                        else: 
+                            print("Retrieving relevant context")
+                            # Query past context with the current prompt
+                            past_context = kv_cache.retrieve_relevant_context(tokens)
+                            past_context_string = " ".join(past_context)
+                            past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
+                            past_context_ids = past_context_ids.to(model.device)
+                            
+                            # Get the length of past context
+                            past_seq_len = past_context_ids.shape[1]
+                            # Tokenize the past context so we can store it
+                            past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
+                            kv_cache.store_tokens(tokens=past_tokens)
+
+                            # Get past key values with past context included in cache
+                            space_needed = seq_len + max_eval_len + past_seq_len
+                            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
+
+
                 # Forward pass
                 with torch.no_grad():
                     outputs = model(
@@ -119,10 +157,6 @@ def evaluate_perplexity(
                     
                     logits = outputs.logits.view(-1, model.config.vocab_size)
                     past_key_values = outputs.past_key_values
-
-                    # Apply KV cache if enabled
-                    if kv_cache is not None:
-                        past_key_values = kv_cache(past_key_values)
 
                     # Compute loss
                     label = target.view(-1)

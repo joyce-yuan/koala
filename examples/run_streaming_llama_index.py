@@ -83,6 +83,7 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=10
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
             elif idx == 2: 
+                # TODO: Retrieve relevant past context for all prompts (not just for testing).
                 # For testing, try retrieving relevant past context for the second prompt
                 print("Retrieving relevant context")
 
