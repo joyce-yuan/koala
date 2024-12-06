@@ -13,7 +13,7 @@ import sys
 from tqdm import tqdm
 from streaming_llm.utils import load, download_url, load_jsonl
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
-from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
+from streaming_llm.llama_index_verbose import LlamaIndexKVCache
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -73,27 +73,27 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
 
 
 @torch.no_grad()
-def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=500):
+def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=20):
     past_key_values = None
     for idx, prompt in enumerate(prompts):
-        prompt = "USER: " + prompt + "\n\nASSISTANT: "
-        print("\n" + prompt, end="")
+        # prompt = "USER: " + prompt + "\n\nASSISTANT: "
+        # print("\n" + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
         input_ids = input_ids.to(model.device)
         seq_len = input_ids.shape[1]
 
         # Tokenize the prompt
         tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
-        
+        past_context_ids = None
         if kv_cache is not None:
             # store all tokens in kv_cache
             kv_cache.store_tokens(tokens=tokens)
 
             # Get past key values and evict for space
-            if idx != 1:
+            if idx == 0:
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
-            elif idx == 1: 
+            else: 
                 # For testing, try retrieving relevant past context for the second prompt
                 print("Retrieving relevant context")
 
@@ -110,15 +110,20 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=50
                 kv_cache.store_tokens(tokens=past_tokens)
 
                 # Get past key values with past context included in cache
-                space_needed = seq_len + max_gen_len + past_seq_len
+                space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
             # else:
             #     # For testing, it stops after the second prompt
             #     raise ValueError(f"stop here")
-
+        if past_context_ids is not None:
+            print("prompt: ", prompt, "past_context: ", past_context_string)
+            input_ids = torch.cat([input_ids, past_context_ids], dim=1)
+        # print(f"past_key_values passing into model: {past_key_values}")
+        print("greedy generate starting...")
         past_key_values = greedy_generate(
             model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache
         )
+        print("greedy generate done.")
 
 
 def enable_streaming_llm_llama_index(model, start_size, recent_size):
@@ -157,7 +162,6 @@ def enable_streaming_llm_llama_index(model, start_size, recent_size):
     )
     return kv_cache
 
-
 def main(args):
     model_name_or_path = args.model_name_or_path
     # model, tokenizer = load(model_name_or_path)
@@ -180,17 +184,17 @@ def main(args):
 
     model.eval()
 
-    # test_filepath = os.path.join("examples", "data", "secret_words.jsonl")
-    test_filepath = os.path.join(args.data_root, "mt_bench.jsonl")
+    test_filepath = os.path.join("data", "secret_answers.jsonl")
+    # test_filepath = os.path.join("data", "mt_bench.jsonl")
     
-    print(f"Loading data from {test_filepath} ...")
+    # print(f"Loading data from {test_filepath} ...")
 
-    if not os.path.exists(test_filepath):
-        download_url(
-            "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
-            args.data_root,
-        )
-        os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
+    # if not os.path.exists(test_filepath):
+    #     download_url(
+    #         "https://raw.githubusercontent.com/lm-sys/FastChat/main/fastchat/llm_judge/data/mt_bench/question.jsonl",
+    #         args.data_root,
+    #     )
+    #     os.rename(os.path.join(args.data_root, "question.jsonl"), test_filepath)
 
     list_data = load_jsonl(test_filepath)
     prompts = []
@@ -222,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--enable_streaming", action="store_true")
     parser.add_argument("--start_size", type=int, default=4)
-    parser.add_argument("--recent_size", type=int, default=1000)
+    parser.add_argument("--recent_size", type=int, default=32)
     args = parser.parse_args()
 
     main(args)
