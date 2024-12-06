@@ -45,13 +45,22 @@ class LlamaIndexKVCache:
         self.token_map: Dict[int, str] = {}  # Maps position to token text
         self.vector_index = VectorStoreIndex([])
 
-    def store_tokens(self, tokens: List[str]):
-        """Store token mapping for future reference"""        
-        print(f"Storing {len(tokens)} tokens")
-        for token in tokens:
+    # def store_tokens(self, tokens: List[str]):
+    #     """Store token mapping for future reference"""        
+    #     print(f"Storing {len(tokens)} tokens")
+    #     for token in tokens:
+    #         current_index = len(self.token_map)
+    #         self.token_map[current_index] = token
+    #         print(f"  Stored token #{current_index}: '{token}'")
+
+    def store_text(self, text: str):
+        """Store token mapping for future reference"""
+        # print("store text called on: ", text)
+        words = text.split(" ")
+        for word in words:
             current_index = len(self.token_map)
-            self.token_map[current_index] = token
-            print(f"  Stored token #{current_index}: '{token}'")
+            self.token_map[current_index] = word
+            # print(f"  Stored token #{current_index}: '{word}'")
             
     def create_chunk_from_range(self, start: int, end: int) -> TextNode:
         """Create a TextNode from a range of tokens"""
@@ -68,7 +77,7 @@ class LlamaIndexKVCache:
                 text += self.token_map[i]
         
         node = TextNode(text=text)
-        print(f"  Created chunk: '{text}'")
+        print(f"  Created chunk: \n\n'{text}'\n\n")
         return node
         
     def index_evicted_tokens(self, start: int, end: int):
@@ -82,10 +91,10 @@ class LlamaIndexKVCache:
         self.vector_index.insert_nodes([chunk])
         print(f"  Indexed chunk in vector store")
         
-    def retrieve_relevant_context(self, query_tokens, top_k=3):
+    def retrieve_relevant_context(self, query_string, top_k=3):
         """Retrieve relevant context from evicted tokens"""
         # Create a string from the prompt tokens
-        query_string = " ".join(query_tokens)
+        # query_string = " ".join(query_tokens)
         print(f"Retrieving relevant context for query: '{query_string}'")
         
         # Retrieve the top k similar nodes from vector index

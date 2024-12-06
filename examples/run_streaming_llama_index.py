@@ -52,6 +52,7 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
         )
 
         now = len(generated_text) - 1
+        # TODO: what does this section do?
         if now > pos:
             print(" ".join(generated_text[pos:now]), end=" ", flush=True)
             generated_response += " ".join(generated_text[pos:now]) + " "
@@ -63,11 +64,16 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
     print(" ".join(generated_text[pos:]), flush=True)
     generated_response += " ".join(generated_text[pos:])
 
+    # After the loop ends, check if the sequence was truncated
+    if len(generated_ids) >= max_gen_len and generated_ids[-1] != tokenizer.eos_token_id:
+        print("\n[WARNING] Sequence truncated due to length limit.")
+
     if kv_cache is not None:
-        response_ids = tokenizer(generated_response, return_tensors="pt").input_ids
-        response_ids = response_ids.to(model.device)
-        response_tokens = tokenizer.convert_ids_to_tokens(response_ids[0])    
-        kv_cache.store_tokens(tokens=response_tokens)
+        kv_cache.store_text(generated_response)
+        # response_ids = tokenizer(generated_response, return_tensors="pt").input_ids
+        # response_ids = response_ids.to(model.device)
+        # response_tokens = tokenizer.convert_ids_to_tokens(response_ids[0])    
+        # kv_cache.store_tokens(tokens=response_tokens)
     
     return past_key_values
 
@@ -76,21 +82,24 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
 def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=20):
     past_key_values = None
     for idx, prompt in enumerate(prompts):
-        # prompt = "USER: " + prompt + "\n\nASSISTANT: "
+        print("DEBUG: prompt: ", idx)
+        prompt = "USER: " + prompt + " \nASSISTANT: "
         # print("\n" + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
         input_ids = input_ids.to(model.device)
-        seq_len = input_ids.shape[1]
+        # seq_len = input_ids.shape[1]
 
         # Tokenize the prompt
-        tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
-        past_context_ids = None
+        # tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
+        input_with_context = None
         if kv_cache is not None:
             # store all tokens in kv_cache
-            kv_cache.store_tokens(tokens=tokens)
+            # kv_cache.store_tokens(tokens=tokens)
 
             # Get past key values and evict for space
             if idx == 0:
+                seq_len = input_ids.shape[1]
+                kv_cache.store_text(prompt) # store prompt
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
             else: 
@@ -98,16 +107,25 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=20
                 print("Retrieving relevant context")
 
                 # Query past context with the current prompt
-                past_context = kv_cache.retrieve_relevant_context(tokens)
+                # past_context = kv_cache.retrieve_relevant_context(tokens)
+                past_context = kv_cache.retrieve_relevant_context(prompt)
                 past_context_string = " ".join(past_context)
-                past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
-                past_context_ids = past_context_ids.to(model.device)
+
+                # Concat the past context with the current prompt
+                input_with_context = past_context_string + " " + prompt
+                input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
+                input_ids = input_ids.to(model.device)
+                # past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
+                # past_context_ids = past_context_ids.to(model.device)
                 
                 # Get the length of past context
-                past_seq_len = past_context_ids.shape[1]
+                # past_seq_len = past_context_ids.shape[1]
+                seq_len = input_ids.shape[1]
                 # Tokenize the past context so we can store it
-                past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
-                kv_cache.store_tokens(tokens=past_tokens)
+                # past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
+                # kv_cache.store_tokens(tokens=past_tokens)
+                kv_cache.store_text(input_with_context) # store prompt with past context
+
 
                 # Get past key values with past context included in cache
                 space_needed = seq_len + max_gen_len
@@ -115,9 +133,9 @@ def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=20
             # else:
             #     # For testing, it stops after the second prompt
             #     raise ValueError(f"stop here")
-        if past_context_ids is not None:
-            print("prompt: ", prompt, "past_context: ", past_context_string)
-            input_ids = torch.cat([input_ids, past_context_ids], dim=1)
+        if input_with_context is not None:
+            print("prompt: ", prompt, "input_with_context: \n\n", input_with_context, "\n\n")
+            # input_ids = torch.cat([input_ids, past_context_ids], dim=1)
         # print(f"past_key_values passing into model: {past_key_values}")
         print("greedy generate starting...")
         past_key_values = greedy_generate(
@@ -184,7 +202,7 @@ def main(args):
 
     model.eval()
 
-    test_filepath = os.path.join("data", "secret_answers.jsonl")
+    test_filepath = os.path.join("data", "secret_words.jsonl")
     # test_filepath = os.path.join("data", "mt_bench.jsonl")
     
     # print(f"Loading data from {test_filepath} ...")
@@ -226,7 +244,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--enable_streaming", action="store_true")
     parser.add_argument("--start_size", type=int, default=4)
-    parser.add_argument("--recent_size", type=int, default=32)
+    parser.add_argument("--recent_size", type=int, default=64)
     args = parser.parse_args()
 
     main(args)
