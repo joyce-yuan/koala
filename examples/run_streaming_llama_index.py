@@ -181,8 +181,7 @@ def main(args):
 
     model.eval()
 
-    # test_filepath = os.path.join("data", "secret_answers.jsonl")
-    test_filepath = "/mnt/c/users/jessi_/downloads/6.5940/project/streaming-llm-rag/data/mt_bench.jsonl"
+    test_filepath = os.path.join("data", "secret_answers.jsonl")
     # test_filepath = os.path.join("data", "mt_bench.jsonl")
     
     # print(f"Loading data from {test_filepath} ...")
