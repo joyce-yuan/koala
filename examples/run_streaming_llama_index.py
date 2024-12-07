@@ -13,7 +13,7 @@ import sys
 from tqdm import tqdm
 from streaming_llm.utils import load, download_url, load_jsonl
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
-from streaming_llm.llama_index_verbose import LlamaIndexKVCache
+from streaming_llm.llama_index_new import LlamaIndexKVCache
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -58,90 +58,69 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
             generated_response += " ".join(generated_text[pos:now]) + " "
             pos = now
 
-
         if pred_token_idx == tokenizer.eos_token_id:
             break
     print(" ".join(generated_text[pos:]), flush=True)
     generated_response += " ".join(generated_text[pos:])
 
     # After the loop ends, check if the sequence was truncated
-    if len(generated_ids) >= max_gen_len and generated_ids[-1] != tokenizer.eos_token_id:
-        print("\n[WARNING] Sequence truncated due to length limit.")
+    # if len(generated_ids) >= max_gen_len and generated_ids[-1] != tokenizer.eos_token_id:
+        # print("\n[WARNING] Sequence truncated due to length limit.")
 
     if kv_cache is not None:
+        # print("[STORING RESPONSE]: ", generated_response)
         kv_cache.store_text(generated_response)
-        # response_ids = tokenizer(generated_response, return_tensors="pt").input_ids
-        # response_ids = response_ids.to(model.device)
-        # response_tokens = tokenizer.convert_ids_to_tokens(response_ids[0])    
-        # kv_cache.store_tokens(tokens=response_tokens)
     
     return past_key_values
 
 
 @torch.no_grad()
-def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=20):
+def streaming_inference(model, tokenizer, prompts, kv_cache=None, max_gen_len=50):
     past_key_values = None
     for idx, prompt in enumerate(prompts):
-        print("DEBUG: prompt: ", idx)
-        prompt = "USER: " + prompt + " \nASSISTANT: "
-        # print("\n" + prompt, end="")
+        # print("[DEBUG]: prompt: ", idx)
+        original_prompt = prompt
+        prompt = "USER: " + prompt + "\n\nASSISTANT: "
+        print("\n" + prompt, end="")
+        # print("[PROMPT]: " + prompt, end="")
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
         input_ids = input_ids.to(model.device)
-        # seq_len = input_ids.shape[1]
-
-        # Tokenize the prompt
-        # tokens = tokenizer.convert_ids_to_tokens(input_ids[0])
         input_with_context = None
-        if kv_cache is not None:
-            # store all tokens in kv_cache
-            # kv_cache.store_tokens(tokens=tokens)
 
+        if kv_cache is not None:
             # Get past key values and evict for space
             if idx == 0:
                 seq_len = input_ids.shape[1]
-                kv_cache.store_text(prompt) # store prompt
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
             else: 
-                # For testing, try retrieving relevant past context for the second prompt
-                print("Retrieving relevant context")
-
                 # Query past context with the current prompt
-                # past_context = kv_cache.retrieve_relevant_context(tokens)
                 past_context = kv_cache.retrieve_relevant_context(prompt)
                 past_context_string = " ".join(past_context)
 
                 # Concat the past context with the current prompt
-                input_with_context = past_context_string + " " + prompt
+                input_with_context = "PAST CONTEXT: " + past_context_string + "\n " + "CURRENT PROMPT: " + prompt
+
                 input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
                 input_ids = input_ids.to(model.device)
-                # past_context_ids = tokenizer(past_context_string, return_tensors="pt").input_ids
-                # past_context_ids = past_context_ids.to(model.device)
-                
-                # Get the length of past context
-                # past_seq_len = past_context_ids.shape[1]
-                seq_len = input_ids.shape[1]
-                # Tokenize the past context so we can store it
-                # past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
-                # kv_cache.store_tokens(tokens=past_tokens)
-                kv_cache.store_text(input_with_context) # store prompt with past context
 
+                seq_len = input_ids.shape[1]
 
                 # Get past key values with past context included in cache
                 space_needed = seq_len + max_gen_len
-                past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
-            # else:
-            #     # For testing, it stops after the second prompt
-            #     raise ValueError(f"stop here")
-        if input_with_context is not None:
-            print("prompt: ", prompt, "input_with_context: \n\n", input_with_context, "\n\n")
-            # input_ids = torch.cat([input_ids, past_context_ids], dim=1)
-        # print(f"past_key_values passing into model: {past_key_values}")
-        print("greedy generate starting...")
+                past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+
+            # print('[STORING PROMPT]: ', prompt + "\n\n")
+            kv_cache.store_text(original_prompt) # store prompt
+
+        # if input_with_context is not None:
+        #     print("[INPUT WITH CONTEXT]:\n", input_with_context + "\n\n")
+
+        # print("[GREEDY START]")
         past_key_values = greedy_generate(
             model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache
         )
-        print("greedy generate done.")
+        # print("[GREEDY DONE]\n\n")
 
 
 def enable_streaming_llm_llama_index(model, start_size, recent_size):
@@ -202,7 +181,8 @@ def main(args):
 
     model.eval()
 
-    test_filepath = os.path.join("data", "secret_words.jsonl")
+    # test_filepath = os.path.join("data", "secret_answers.jsonl")
+    test_filepath = "/mnt/c/users/jessi_/downloads/6.5940/project/streaming-llm-rag/data/mt_bench.jsonl"
     # test_filepath = os.path.join("data", "mt_bench.jsonl")
     
     # print(f"Loading data from {test_filepath} ...")
@@ -244,7 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--enable_streaming", action="store_true")
     parser.add_argument("--start_size", type=int, default=4)
-    parser.add_argument("--recent_size", type=int, default=64)
+    parser.add_argument("--recent_size", type=int, default=100)
     args = parser.parse_args()
 
     main(args)

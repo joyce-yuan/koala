@@ -6,8 +6,6 @@ from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 
-os.environ["OPENAI_API_KEY"] = "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"
-
 def slice2d(x, start, end):
     return x[:, :, start:end, ...]
 
@@ -42,7 +40,7 @@ class LlamaIndexKVCache:
         self.v_slice = DIM_TO_SLICE[v_seq_dim]
         
         # LlamaIndex components
-        self.embedding_model = embedding_model or OpenAIEmbedding(model="text-embedding-3-small",)
+        # self.embedding_model = embedding_model or OpenAIEmbedding(model="text-embedding-3-small",)
         self.vector_index = VectorStoreIndex([])
 
     def store_text(self, text: str):
@@ -58,9 +56,9 @@ class LlamaIndexKVCache:
         retriever.similarity_top_k = top_k
     
         results = retriever.retrieve(query_string)
-        print(f"Retrieved {len(results)} relevant contexts:")
-        for i, result in enumerate(results, 1):
-            print(f"Context {i}: '{result.text}'")
+        # print(f"Retrieved {len(results)} relevant contexts:")
+        # for i, result in enumerate(results, 1):
+        #     print(f"[CONTEXT {i}]: '{result.text}'\n")
         
         return [result.text for result in results]
 
