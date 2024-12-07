@@ -13,7 +13,7 @@ import sys
 from tqdm import tqdm
 from streaming_llm.utils import load, download_url, load_jsonl
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
-from streaming_llm.llama_index_new import LlamaIndexKVCache
+from streaming_llm.llama_index_newest import LlamaIndexKVCache
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
