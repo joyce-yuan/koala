@@ -6,6 +6,8 @@ from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.core import VectorStoreIndex
 from llama_index.embeddings.openai import OpenAIEmbedding
 
+
+
 def slice2d(x, start, end):
     return x[:, :, start:end, ...]
 
@@ -28,7 +30,6 @@ class LlamaIndexKVCache:
         recent_size=512,
         k_seq_dim=2,
         v_seq_dim=2,
-        embedding_model=None,
     ):
         print(f"LlamaIndexKVCache: Initialized with start_size={start_size}, recent_size={recent_size}")
         self.start_size = start_size
@@ -40,11 +41,11 @@ class LlamaIndexKVCache:
         self.v_slice = DIM_TO_SLICE[v_seq_dim]
         
         # LlamaIndex components
-        # self.embedding_model = embedding_model or OpenAIEmbedding(model="text-embedding-3-small",)
         self.vector_index = VectorStoreIndex([])
 
     def store_text(self, text: str):
         """Store token mapping for future reference"""
+        # print(f"Storing text: '{text}'")
         node = TextNode(text=text)
         self.vector_index.insert_nodes([node])
             
@@ -56,21 +57,20 @@ class LlamaIndexKVCache:
         retriever.similarity_top_k = top_k
     
         results = retriever.retrieve(query_string)
+        # print("\n\nRetrieved results:", results, "\n\n")
         # print(f"Retrieved {len(results)} relevant contexts:")
         # for i, result in enumerate(results, 1):
         #     print(f"[CONTEXT {i}]: '{result.text}'\n")
         
-        return [result.text for result in results]
+        return [result.text for result in results if result.score > 0.9]
 
     def __call__(self, past_key_values):
         if past_key_values is None:
             return None
         
         seq_len = past_key_values[0][0].size(self.k_seq_dim)
-        # print(f"__call__: Sequence length = {seq_len}, Cache size = {self.cache_size}")
         
         if seq_len <= self.cache_size:
-            # print("  Sequence length within cache size, no eviction needed")
             return past_key_values
         
         return [
@@ -113,7 +113,7 @@ class LlamaIndexKVCache:
             evict_start = 0
             evict_end = seq_len - self.recent_size + num_coming - self.start_size
                 
-        # Otherwise return the shortened cache
+        # Return the shortened cache
         return [
             [
                 torch.cat(
