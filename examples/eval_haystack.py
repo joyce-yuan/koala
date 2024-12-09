@@ -1,7 +1,11 @@
+import csv
 import os
 import torch
 import re
 import string
+
+from tqdm import tqdm
+
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
@@ -9,9 +13,24 @@ from streaming_llm.llama_index_verbose import LlamaIndexKVCache
 from streaming_llm.utils import load_jsonl
 from examples.run_streaming_llama_index import enable_streaming_llm_llama_index
 
+from datetime import datetime
+
+import logging
+
+current_time = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+log_filename = f"logging/{current_time}_haystack.log"
+# Configure the logging system
+logging.basicConfig(
+    filename=log_filename,         # Log file name
+    filemode='a',                  # Append mode
+    level=logging.INFO,            # Minimum level of logs to capture (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    format='%(asctime)s %(levelname)s: %(message)s', # Format of each log line
+    datefmt='%Y-%m-%d %H:%M:%S'    # Date format
+)
+
 
 # Helper functions for the NON-RAG model (i.e run_streaming_llama.py)
-def load_non_rag_model(model_name_or_path="Jiayi-Pan/Tiny-Vicuna-1B", enable_streaming=False, start_size=4, recent_size=2000):
+def load_non_rag_model(model_name_or_path="Jiayi-Pan/Tiny-Vicuna-1B", enable_streaming=False, start_size=4, recent_size=1000):
     model, tokenizer = load_model_tokenizer(model_name_or_path)
     kv_cache = None
     if enable_streaming:
@@ -20,7 +39,6 @@ def load_non_rag_model(model_name_or_path="Jiayi-Pan/Tiny-Vicuna-1B", enable_str
 
 
 def load_model_tokenizer(model_name_or_path):
-    # This is adapted from your run_streaming_llama.py load function
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path,
         trust_remote_code=True,
@@ -81,7 +99,7 @@ def run_inference_single_prompt_non_rag(model, tokenizer, prompt, kv_cache=None,
 
 
 # Helper functions for the RAG model (i.e run_streaming_llama_index.py)
-def load_rag_model(model_name_or_path="Jiayi-Pan/Tiny-Vicuna-1B", enable_streaming=True, start_size=4, recent_size=64):
+def load_rag_model(model_name_or_path="Jiayi-Pan/Tiny-Vicuna-1B", enable_streaming=True, start_size=4, recent_size=1000):
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path,
         trust_remote_code=True,
@@ -145,7 +163,7 @@ def run_inference_single_prompt_rag(model, tokenizer, prompt, kv_cache=None, max
 
         input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids.to(model.device)
         seq_len = input_ids.shape[1]
-        kv_cache.store_text(input_with_context)
+        kv_cache.store_text(prompt)
         past_key_values = kv_cache.evict_for_space(None, seq_len + max_gen_len, past_context=past_context_string)
     else:
         input_ids = tokenizer(full_prompt, return_tensors="pt").input_ids.to(model.device)
@@ -244,10 +262,13 @@ def main():
     non_rag_f1_sum = 0.0
     total = len(subset)
 
-    for example in subset:
+    idx = 0
+    for example in tqdm(subset):
+        # import pdb
+        # pdb.set_trace()
         question_text = example["question"]["text"]
         gold_answers = extract_gold_answers(example)
-
+        print(f"Question Text: {question_text}")
         non_rag_answer = run_inference_single_prompt_non_rag(non_rag_model, non_rag_tokenizer, question_text, kv_cache=non_rag_kv, max_gen_len=100)
         
         rag_answer = run_inference_single_prompt_rag(rag_model, rag_tokenizer, question_text, kv_cache=rag_kv, max_gen_len=100)
@@ -257,11 +278,18 @@ def main():
         if exact_match_score(rag_answer, gold_answers):
             rag_correct_count += 1
 
+        logging.info(f"[{idx}] Question Text: {question_text}")
+        logging.info(f"[{idx}] Gold Answers: {gold_answers}")
+        logging.info(f"[{idx}] Non-RAG Answer: {non_rag_answer}")
+        logging.info(f"[{idx}] RAG Answer: {rag_answer}")
+        
         # F1 Score
         non_rag_f1 = f1_score(non_rag_answer, gold_answers)
         rag_f1 = f1_score(rag_answer, gold_answers)
         non_rag_f1_sum += non_rag_f1
         rag_f1_sum += rag_f1
+
+        idx += 1
 
     print(f"Non-RAG Exact Match Accuracy: {non_rag_correct_count / total:.2f}")
     print(f"RAG Exact Match Accuracy: {rag_correct_count / total:.2f}")
