@@ -8,7 +8,9 @@ from torch.nn import CrossEntropyLoss
 from streaming_llm.kv_cache import StartRecentKVCache
 from streaming_llm.llama_index_kv_cache import LlamaIndexKVCache
 from streaming_llm.utils import load, download_url, load_jsonl
+from streaming_llm.utils import parse_args
 
+args = parse_args()
 
 def get_kv_cache_params(model):
     """
@@ -45,6 +47,8 @@ def evaluate_perplexity(
     device = "cuda"
     model.to(device)
     model.eval()
+
+    print(f"max_eval_tokens: {max_eval_tokens}")
 
     # Prepare KV Cache
     if enable_kv_cache:
@@ -227,8 +231,9 @@ def main():
         model, 
         tokenizer, 
         dataset, 
+        max_eval_tokens=args.num_eval_tokens,
         enable_kv_cache=False,  # Enable KV cache
-        kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
+        kv_cache_type='llama_index', # 'start_recent',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
         recent_size=64
     )

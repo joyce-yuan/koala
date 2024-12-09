@@ -1,3 +1,8 @@
+import os
+cwd = os.getcwd()
+
+print(cwd)
+
 import torch
 from tqdm import tqdm
 import os
@@ -6,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
 from streaming_llm.kv_cache import StartRecentKVCache
-from streaming_llm.llama_index_verbose import LlamaIndexKVCache
+from streaming_llm.llama_index_newest import LlamaIndexKVCache
 from streaming_llm.utils import load, download_url, load_jsonl
 
 from streaming_llm.utils import parse_args
@@ -96,7 +101,8 @@ def evaluate_perplexity(
             # Tokenize the text
             encodings = tokenizer(text, return_tensors="pt")
             input_ids = encodings.input_ids.to(device)
-            
+            input_with_context = None
+
             # Validate input
             if input_ids.size(1) < 2:
                 print(f"Input too short. Skipping. Length: {input_ids.size(1)}")
@@ -106,72 +112,55 @@ def evaluate_perplexity(
             print(f"Processing sequence of length: {seq_len}")
 
             past_key_values = None
-            
+
+            # Store the prompt in the KV cache.
+            if kv_cache is not None:
+                # Get past key values and evict for space
+                if idx == 0:
+                    seq_len = input_ids.shape[1]
+                    space_needed = seq_len + max_gen_len
+                    past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+                else: 
+                    # Query past context with the current prompt
+                    past_context = kv_cache.retrieve_relevant_context(prompt)
+                    past_context_string = " ".join(past_context)
+
+                    # Concat the past context with the current prompt
+                    input_with_context = "PAST CONTEXT: " + past_context_string + "\n " + "CURRENT PROMPT: " + prompt
+
+                    input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
+                    input_ids = input_ids.to(model.device)
+
+                    seq_len = input_ids.shape[1]
+
+                    # Get past key values with past context included in cache
+                    space_needed = seq_len + max_gen_len
+                    past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+
+                kv_cache.store_text(original_prompt) # store prompt
+
             # Iterate through the sequence
             for idx in tqdm(range(seq_len - 1)):
                 # Prepare input
                 current_input = input_ids[:, idx:idx+1]
                 target = input_ids[:, idx+1:idx+2]
 
-                # curr_input_ids = input_ids[:, idx : idx + 1]
+                # Prepare subtext of the prompt
+                subtext = (
+                    tokenizer.decode(
+                        # current_input, #
+                        current_input[0], # TODO
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=True,
+                        spaces_between_special_tokens=False
+                    )
+                    .strip()
+                )
 
-                # Apply KV cache if enabled
-                if kv_cache is not None:
-                    if kv_cache_type == 'start_recent':
-                        past_key_values = kv_cache(past_key_values)
+                seq_len = input_ids.shape[1]
 
-                    # If llama index kv cache, store text and retrieve relevant context.
-                    elif kv_cache_type == 'llama_index':
-                        print("encodings shape: ", encodings.input_ids[:, idx : idx + 1].to(device).shape)
-                        # Convert tokens back into text.
-                        print("current_input", current_input)
-                        subtext = (
-                            tokenizer.decode(
-                                # current_input, #
-                                current_input[0], # TODO
-                                skip_special_tokens=True,
-                                clean_up_tokenization_spaces=True,
-                                spaces_between_special_tokens=False
-                            )
-                            .strip()
-                        )
-
-                        # Store text in kv cache.
-                        kv_cache.store_text(subtext)
-
-                        seq_len = input_ids.shape[1]
-
-                        if idx < 1:
-                            # Skip retrieving relevant context for the first two prompts.
-                            kv_cache.store_text(subtext) # store prompt
-                            # space_needed = seq_len + 1 # Should it be this instead? This should be the same as the following line.
-                            space_needed = 2 # the current input (1 token) + 1 token
-                            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
-                        else: 
-                            # print(f"Retrieving relevant context for subtext:{subtext}")
-                            # Query past context with the current text
-                            if subtext == '':
-                                past_context_string = ''
-                            else:
-                                past_context = kv_cache.retrieve_relevant_context(subtext)
-                                past_context_string = " ".join(past_context)
-
-                            # Concat the past context with the current text
-                            input_with_context = past_context_string + " " + subtext
-                            # input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
-                            # input_ids = input_ids.to(model.device)
-
-                            # Get the length of past context
-                            # past_seq_len = past_context_ids.shape[1]
-                            # # Tokenize the past context so we can store it
-                            # past_tokens = tokenizer.convert_ids_to_tokens(past_context_ids[0])
-                            # kv_cache.store_tokens(tokens=past_tokens)
-                            kv_cache.store_text(input_with_context) # store prompt with past context
-
-                            # Get past key values with past context included in cache
-                            space_needed = 1 + seq_len # Don't need seq_len because it has already been stored.
-                            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
-
+                # Concat the past context with the current text
+                input_with_context = past_context_string + " " + subtext
 
                 # Forward pass
                 with torch.no_grad():
@@ -186,12 +175,6 @@ def evaluate_perplexity(
 
                     # Compute loss
                     label = target.view(-1)
-                    # label = encodings.input_ids[:, idx + 1 : idx + 2].to(logits.device).view(-1)
-
-                    # Print shape
-                    print(f"logits.shape: {logits.shape}")
-                    print(f"target.shape: {target.shape}")
-                    print(f"label.shape: {label.shape}")
 
                     neg_log_likelihood = loss_fn(logits, label)
                     
@@ -263,8 +246,7 @@ def yappy_llama_cache_eval():
         enable_kv_cache=True,  # Enable KV cache
         kv_cache_type='llama_index',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
-        # recent_size=64
-        recent_size=125,
+        recent_size=64,
         max_eval_tokens=args.num_eval_tokens,
     )
 

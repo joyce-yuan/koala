@@ -1,3 +1,8 @@
+import os
+cwd = os.getcwd()
+
+print(cwd)
+
 import torch
 from tqdm import tqdm
 import os
@@ -6,7 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
 from streaming_llm.kv_cache import StartRecentKVCache
-from streaming_llm.llama_index_verbose import LlamaIndexKVCache
+from streaming_llm.llama_index_newest import LlamaIndexKVCache
 from streaming_llm.utils import load, download_url, load_jsonl
 
 from streaming_llm.utils import parse_args
@@ -137,27 +142,31 @@ def evaluate_perplexity(
                         )
 
                         # Store text in kv cache.
-                        kv_cache.store_text(subtext)
+                        if subtext != '':
+                            kv_cache.store_text(subtext)
 
                         seq_len = input_ids.shape[1]
 
                         if idx < 1:
                             # Skip retrieving relevant context for the first two prompts.
-                            kv_cache.store_text(subtext) # store prompt
+                            if subtext != '':
+                                kv_cache.store_text(subtext) # store prompt
                             # space_needed = seq_len + 1 # Should it be this instead? This should be the same as the following line.
                             space_needed = 2 # the current input (1 token) + 1 token
                             past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
                         else: 
                             # print(f"Retrieving relevant context for subtext:{subtext}")
                             # Query past context with the current text
-                            if subtext == '':
-                                past_context_string = ''
-                            else:
-                                past_context = kv_cache.retrieve_relevant_context(subtext)
-                                past_context_string = " ".join(past_context)
+                            # Commenting out the following to see if ppl is the same as the start_recent cache.
+                            # if subtext == '':
+                            #     past_context_string = ''
+                            # else:
+                            #     past_context = kv_cache.retrieve_relevant_context(subtext)
+                            #     past_context_string = " ".join(past_context)
 
                             # Concat the past context with the current text
-                            input_with_context = past_context_string + " " + subtext
+                            input_with_context = subtext
+                            # input_with_context = past_context_string + " " + subtext
                             # input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
                             # input_ids = input_ids.to(model.device)
 
@@ -263,8 +272,7 @@ def yappy_llama_cache_eval():
         enable_kv_cache=True,  # Enable KV cache
         kv_cache_type='llama_index',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
-        # recent_size=64
-        recent_size=125,
+        recent_size=64,
         max_eval_tokens=args.num_eval_tokens,
     )
 
