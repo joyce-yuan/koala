@@ -1,7 +1,5 @@
-import os
-cwd = os.getcwd()
-
-print(cwd)
+# This script evaluates the perplexity of a model using the LlamaIndexKVCache. 
+# The context is retrieved per prompt (not per token).
 
 import torch
 from tqdm import tqdm
@@ -111,33 +109,24 @@ def evaluate_perplexity(
             seq_len = input_ids.size(1)
             print(f"Processing sequence of length: {seq_len}")
 
+            # Use the cache to retrieve relevant context to the prompt.
             past_key_values = None
 
-            # Store the prompt in the KV cache.
-            if kv_cache is not None:
-                # Get past key values and evict for space
-                if idx == 0:
-                    seq_len = input_ids.shape[1]
-                    space_needed = seq_len + max_gen_len
-                    past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
-                else: 
-                    # Query past context with the current prompt
-                    past_context = kv_cache.retrieve_relevant_context(prompt)
-                    past_context_string = " ".join(past_context)
+            # Query past context with the current prompt
+            past_context = kv_cache.retrieve_relevant_context(text)
+            past_context_string = " ".join(past_context)
 
-                    # Concat the past context with the current prompt
-                    input_with_context = "PAST CONTEXT: " + past_context_string + "\n " + "CURRENT PROMPT: " + prompt
+            # Concat the past context with the current prompt
+            input_with_context = "PAST CONTEXT: " + past_context_string + "\n " + "CURRENT PROMPT: " + text
 
-                    input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
-                    input_ids = input_ids.to(model.device)
+            input_with_context_ids = tokenizer(input_with_context, return_tensors="pt").input_ids
+            input_with_context_ids = input_with_context_ids.to(model.device)
 
-                    seq_len = input_ids.shape[1]
+            input_len = input_with_context_ids.shape[1]
 
-                    # Get past key values with past context included in cache
-                    space_needed = seq_len + max_gen_len
-                    past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
-
-                kv_cache.store_text(original_prompt) # store prompt
+            # Get past key values with past context included in cache
+            space_needed = input_len # + max_eval_len
+            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
 
             # Iterate through the sequence
             for idx in tqdm(range(seq_len - 1)):
@@ -148,7 +137,7 @@ def evaluate_perplexity(
                 # Prepare subtext of the prompt
                 subtext = (
                     tokenizer.decode(
-                        # current_input, #
+                        # current_input,
                         current_input[0], # TODO
                         skip_special_tokens=True,
                         clean_up_tokenization_spaces=True,
@@ -157,20 +146,30 @@ def evaluate_perplexity(
                     .strip()
                 )
 
-                seq_len = input_ids.shape[1]
+                print(f"subtext: {subtext}")
 
-                # Concat the past context with the current text
-                input_with_context = past_context_string + " " + subtext
+                model_input_ids = None
+                if idx < 1:
+                    # If this is the first token, concat the past context with the current text
+                    input_with_context = past_context_string + " " + subtext
+                    model_input_ids = tokenizer(input_with_context, return_tensors="pt").input_ids.to(device)
+                    print("idx = 0", model_input_ids)
+                else:
+                    # Only take the input id of the current token
+                    model_input_ids = encodings.input_ids[:, idx : idx + 1].to(device) # TODO
+                    print("idx != 0", model_input_ids)
+                    print(f"idx: {idx}, seq_len-1: {seq_len-1}")
 
                 # Forward pass
                 with torch.no_grad():
                     outputs = model(
-                        encodings.input_ids[:, idx : idx + 1].to(device), # current input ids
+                        model_input_ids,
                         past_key_values=past_key_values,
                         use_cache=True,
                     )
                     
                     logits = outputs.logits.view(-1, model.config.vocab_size)
+                    logits = outputs.logits[:, -1, :]  # Take only the logits for the last token
                     past_key_values = outputs.past_key_values
 
                     # Compute loss
@@ -190,7 +189,10 @@ def evaluate_perplexity(
                     break
 
             if num_eval_tokens >= max_eval_tokens:
+                # HACK: Ensure that max_eval_tokens < text length so the prompt gets stored.
+                kv_cache.store_text(text) # store prompt
                 break
+
 
     except Exception as e:
         print(f"Error during evaluation: {e}")
