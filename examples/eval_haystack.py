@@ -1,31 +1,24 @@
-import csv
-import os
 import torch
 import re
 import string
-
+import json
 from tqdm import tqdm
-
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from streaming_llm.enable_streaming_llm import enable_streaming_llm
-from streaming_llm.llama_index_verbose import LlamaIndexKVCache
-from streaming_llm.utils import load_jsonl
-from examples.run_streaming_llama_index import enable_streaming_llm_llama_index
-
 from datetime import datetime
-
 import logging
 
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from streaming_llm.enable_streaming_llm import enable_streaming_llm
+from examples.run_streaming_llama_index import enable_streaming_llm_llama_index
+from llama_index.core import VectorStoreIndex
+
 current_time = datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-log_filename = f"logging/{current_time}_haystack.log"
-# Configure the logging system
+log_filename = f"examples/logging/{current_time}_haystack.log"
 logging.basicConfig(
-    filename=log_filename,         # Log file name
-    filemode='a',                  # Append mode
-    level=logging.INFO,            # Minimum level of logs to capture (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format='%(asctime)s %(levelname)s: %(message)s', # Format of each log line
-    datefmt='%Y-%m-%d %H:%M:%S'    # Date format
+    filename=log_filename,
+    filemode='a',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 
@@ -65,7 +58,6 @@ def non_rag_greedy_generate(model, tokenizer, input_ids, past_key_values, max_ge
     past_key_values = outputs.past_key_values
     pred_token_idx = outputs.logits[:, -1, :].argmax(dim=-1).unsqueeze(1)
     generated_ids = [pred_token_idx.item()]
-    generated_response = ""
 
     for _ in range(max_gen_len - 1):
         outputs = model(input_ids=pred_token_idx, past_key_values=past_key_values, use_cache=True)
@@ -73,28 +65,49 @@ def non_rag_greedy_generate(model, tokenizer, input_ids, past_key_values, max_ge
         pred_token_idx = outputs.logits[:, -1, :].argmax(dim=-1).unsqueeze(1)
         generated_ids.append(pred_token_idx.item())
 
-        generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         if pred_token_idx == tokenizer.eos_token_id:
             break
 
-    generated_response = generated_text.strip()
+    generated_response = tokenizer.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True).strip()
     return generated_response, past_key_values
 
+# @torch.no_grad()
+# def run_inference_single_prompt_non_rag(model, tokenizer, prompt, kv_cache=None, max_gen_len=100):
+#     full_prompt = "USER: " + prompt + "\n\nASSISTANT: "
+#     input_ids = tokenizer(full_prompt, return_tensors="pt").input_ids.to(model.device)
+#     if kv_cache is not None:
+#         seq_len = input_ids.shape[1]
+#         past_key_values = kv_cache.evict_for_space(None, seq_len + max_gen_len)
+#     else:
+#         past_key_values = None
+
+#     response, past_key_values = non_rag_greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len)
+#     return response
 
 @torch.no_grad()
-def run_inference_single_prompt_non_rag(model, tokenizer, prompt, kv_cache=None, max_gen_len=100):
+def run_inference_single_prompt_non_rag(model, tokenizer, prompt, kv_cache=None, max_gen_len=100, context_docs=None):
     """
     Run inference for a single prompt using the non-RAG setup and return the generated answer.
+    Now we include all documents directly in the prompt for a fairer comparison.
     """
-    full_prompt = "USER: " + prompt + "\n\nASSISTANT: "
+    if context_docs is not None and len(context_docs) > 0:
+        # Combine all 10 documents into a single string
+        docs_str_list = []
+        for doc_entry in context_docs:
+            sentences = doc_entry[1]  # doc_entry = [title, [sentences]]
+            docs_str_list.append(" ".join(sentences))
+        combined_docs_str = "\n\n".join(docs_str_list)
+
+        full_prompt = f"USER: {prompt}\n\nHere are some documents:\n{combined_docs_str}\n\nASSISTANT: "
+    else:
+        full_prompt = "USER: " + prompt + "\n\nASSISTANT: "
+
     input_ids = tokenizer(full_prompt, return_tensors="pt").input_ids.to(model.device)
     if kv_cache is not None:
         seq_len = input_ids.shape[1]
-        past_key_values = kv_cache.evict_for_space(None, seq_len + max_gen_len)
-    else:
-        past_key_values = None
-
-    response, past_key_values = non_rag_greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len)
+        space_needed = seq_len + max_gen_len
+        kv_cache.evict_for_space(None, space_needed)
+    response, _ = non_rag_greedy_generate(model, tokenizer, input_ids, None, max_gen_len=max_gen_len)
     return response
 
 
@@ -146,17 +159,14 @@ def rag_greedy_generate(model, tokenizer, input_ids, past_key_values, kv_cache=N
 @torch.no_grad()
 def run_inference_single_prompt_rag(model, tokenizer, prompt, kv_cache=None, max_gen_len=100):
     """
-    Run inference with RAG system. Retrieves previously evicted tokens if any and add them as context.
+    Run inference with RAG system. Retrieve relevant context from kv_cache and prepend it.
     """
-    # Retrieve relevant context from kv_cache if available, prepend that context to the prompt and generate.
-    # TODO: do above for subsequent prompts. For the first prompt, no retrieval.
-
     full_prompt = "USER: " + prompt + " \nASSISTANT: "
     if kv_cache is not None:
         past_context_list = kv_cache.retrieve_relevant_context(prompt)
-        past_context_string = " ".join(past_context_list)
+        past_context_string = " ".join(past_context_list).strip()
 
-        if past_context_string.strip():
+        if past_context_string:
             input_with_context = past_context_string + " " + full_prompt
         else:
             input_with_context = full_prompt
@@ -170,7 +180,7 @@ def run_inference_single_prompt_rag(model, tokenizer, prompt, kv_cache=None, max
         past_key_values = None
 
     response, past_key_values = rag_greedy_generate(model, tokenizer, input_ids, past_key_values, kv_cache=kv_cache, max_gen_len=max_gen_len)
-    return response
+    return response, past_context_list
 
 
 def normalize_text(s):
@@ -224,34 +234,38 @@ def f1_score(pred, gold_answers):
             # If either is empty, define F1 as 0 unless both are empty
             curr_f1 = 1.0 if len(pred_tokens) == len(gold_tokens) else 0.0
         else:
-            precision = num_common / len(pred_tokens)
-            recall = num_common / len(gold_tokens)
-            if precision + recall > 0:
-                curr_f1 = 2 * (precision * recall) / (precision + recall)
-            else:
-                curr_f1 = 0.0
-
+            precision = num_common / len(pred_tokens) if pred_tokens else 0
+            recall = num_common / len(gold_tokens) if gold_tokens else 0
+            curr_f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
         if curr_f1 > best_f1:
             best_f1 = curr_f1
     return best_f1
 
+def extract_gold_answers(record):
+    return [record["answer"]]
 
-def extract_gold_answers(sample):
+def insert_context_docs_into_rag(kv_cache, context):
     """
-    Extract all gold short answers from the NQ sample.
+    Insert the 10 documents from hotpot context into the vector store.
+    Each element of `context` is: [title, [list_of_sentences]]
+    We'll combine the sentences into a single document string.
+    We'll clear the vector store each time to ensure only current docs are present.
     """
-    gold_answers = []
-    annotations = sample["annotations"]
-    for annot in annotations["short_answers"]:
-        for text_ans in annot["text"]:
-            if text_ans.strip():
-                gold_answers.append(text_ans)
-    return gold_answers
+    # Reset the vector index for each example if needed
+    kv_cache.vector_index = VectorStoreIndex([])
+
+    for doc_entry in context:
+        title = doc_entry[0]
+        sentences = doc_entry[1]
+        doc_text = " ".join(sentences)
+        kv_cache.store_text(doc_text)
 
 
 def main():
-    nq = load_dataset("natural_questions", "dev")
-    subset = nq["validation"].select(range(50))
+    filepath = "data/hotpot_dev_distractor_v1.json"
+    print(f'Loading HotpotQA dataset from {filepath}')
+    with open(filepath, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
     non_rag_model, non_rag_tokenizer, non_rag_kv = load_non_rag_model(enable_streaming=True)
     rag_model, rag_tokenizer, rag_kv = load_rag_model(enable_streaming=True)
@@ -260,30 +274,42 @@ def main():
     non_rag_correct_count = 0
     rag_f1_sum = 0.0
     non_rag_f1_sum = 0.0
-    total = len(subset)
+
+    data = data[:1000]  # comment this out when we want to do full eval
+    total = len(data)
+    print(f"Number of examples: {total}")
 
     idx = 0
-    for example in tqdm(subset):
-        # import pdb
-        # pdb.set_trace()
-        question_text = example["question"]["text"]
-        gold_answers = extract_gold_answers(example)
-        print(f"Question Text: {question_text}")
-        non_rag_answer = run_inference_single_prompt_non_rag(non_rag_model, non_rag_tokenizer, question_text, kv_cache=non_rag_kv, max_gen_len=100)
-        
-        rag_answer = run_inference_single_prompt_rag(rag_model, rag_tokenizer, question_text, kv_cache=rag_kv, max_gen_len=100)
+    for record in tqdm(data, desc="Evaluating"):
+        question_text = record["question"]
+        gold_answers = extract_gold_answers(record)
+        context = record["context"]  # list of docs
+
+        logging.info(f"[{idx}] Question: {question_text}")
+        logging.info(f"[{idx}] Gold Answers: {gold_answers}")
+
+        # Non-RAG Inference (put all docs into prompt as context)
+        non_rag_answer = run_inference_single_prompt_non_rag(
+            non_rag_model, 
+            non_rag_tokenizer, 
+            question_text, 
+            kv_cache=non_rag_kv, 
+            max_gen_len=100, 
+            context_docs=context
+        )        
+        logging.info(f"[{idx}] Non-RAG Answer: {non_rag_answer}")
+
+        # RAG Inference (insert this example's context docs into the vector store for retrieval)
+        insert_context_docs_into_rag(rag_kv, context)
+        rag_answer, past_context = run_inference_single_prompt_rag(rag_model, rag_tokenizer, question_text, kv_cache=rag_kv, max_gen_len=100)
+        logging.info(f"[{idx}] Retrieved {len(past_context)} past contexts for RAG: {past_context}")
+        logging.info(f"[{idx}] RAG Answer: {rag_answer}")
 
         if exact_match_score(non_rag_answer, gold_answers):
             non_rag_correct_count += 1
         if exact_match_score(rag_answer, gold_answers):
             rag_correct_count += 1
 
-        logging.info(f"[{idx}] Question Text: {question_text}")
-        logging.info(f"[{idx}] Gold Answers: {gold_answers}")
-        logging.info(f"[{idx}] Non-RAG Answer: {non_rag_answer}")
-        logging.info(f"[{idx}] RAG Answer: {rag_answer}")
-        
-        # F1 Score
         non_rag_f1 = f1_score(non_rag_answer, gold_answers)
         rag_f1 = f1_score(rag_answer, gold_answers)
         non_rag_f1_sum += non_rag_f1
@@ -291,11 +317,17 @@ def main():
 
         idx += 1
 
+    logging.info(f"Non-RAG Exact Match Accuracy: {non_rag_correct_count / total:.2f}")
+    logging.info(f"RAG Exact Match Accuracy: {rag_correct_count / total:.2f}")
+    logging.info(f"Non-RAG F1: {non_rag_f1_sum / total:.2f}")
+    logging.info(f"RAG F1: {rag_f1_sum / total:.2f}")
+
+
+    # Print aggregated results
     print(f"Non-RAG Exact Match Accuracy: {non_rag_correct_count / total:.2f}")
     print(f"RAG Exact Match Accuracy: {rag_correct_count / total:.2f}")
     print(f"Non-RAG F1: {non_rag_f1_sum / total:.2f}")
     print(f"RAG F1: {rag_f1_sum / total:.2f}")
-
 
 if __name__ == "__main__":
     main()
