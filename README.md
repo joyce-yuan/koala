@@ -47,11 +47,11 @@ python setup.py develop
 ```
 
 ### OpenAI Key
-An OpenAI Key is needed for LlamaIndex. It can be set with
+An OpenAI Key is needed for LlamaIndex. It can be set in your `~/.bashrc` or by running
 
 ```bash
 
-os.environ["OPENAI_API_KEY"] =  "{key}"  
+export OPENAI_API_KEY = "{key}"  
 
 ```
 
