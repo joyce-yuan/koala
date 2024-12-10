@@ -37,7 +37,7 @@ def evaluate_perplexity(
     model, 
     tokenizer, 
     dataset, 
-    max_samples=10, 
+    max_samples=50, 
     max_eval_tokens=1000,
     start_size=4,
     recent_size=512,
@@ -188,6 +188,7 @@ def evaluate_perplexity(
     finally:
         log_file.close()
 
+
     # Compute perplexity
     if len(nlls) > 0:
         ppl = torch.exp(torch.stack(nlls).mean())
@@ -233,9 +234,9 @@ def main():
         dataset, 
         max_eval_tokens=args.num_eval_tokens,
         enable_kv_cache=False,  # Enable KV cache
-        kv_cache_type='llama_index', # 'start_recent',  # Choose between 'start_recent' and 'llama_index'
+        kv_cache_type='start_recent',  # Choose between 'start_recent' and 'llama_index'
         start_size=4,
-        recent_size=64
+        recent_size=512
     )
 
 if __name__ == "__main__":

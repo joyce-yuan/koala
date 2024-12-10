@@ -41,7 +41,7 @@ def evaluate_perplexity(
     model, 
     tokenizer, 
     dataset, 
-    max_samples=10, 
+    max_samples=50, 
     max_eval_tokens=1000,
     start_size=4, # amount of sink tokens
     recent_size=512, # cache size
@@ -189,10 +189,9 @@ def evaluate_perplexity(
                     break
 
             if num_eval_tokens >= max_eval_tokens:
-                # HACK: Ensure that max_eval_tokens < text length so the prompt gets stored.
-                kv_cache.store_text(text) # store prompt
                 break
 
+            kv_cache.store_text(text) # store prompt
 
     except Exception as e:
         print(f"Error during evaluation: {e}")
@@ -246,9 +245,9 @@ def yappy_llama_cache_eval():
         tokenizer, 
         dataset, 
         enable_kv_cache=True,  # Enable KV cache
-        kv_cache_type='llama_index',  # Choose between 'start_recent' and 'llama_index'
+        kv_cache_type='llama_index',
         start_size=4,
-        recent_size=64,
+        recent_size=512,
         max_eval_tokens=args.num_eval_tokens,
     )
 
