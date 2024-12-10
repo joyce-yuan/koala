@@ -16,6 +16,8 @@ data = load_dataset(args.dataset_name, args.task, split=args.split)
 
 model, tokenizer = load(args.model_name_or_path)
 
+MAX_NUM_EVAL_TOKENS = 1000
+
 nlls = []
 loss_fn = CrossEntropyLoss(reduction="none")
 past_key_values = None
@@ -34,8 +36,8 @@ if args.enable_start_recent_kv_cache:
     else:
         raise ValueError(f"got {model.config.model_type}")
     kv_cache = StartRecentKVCache(
-        start_size=args.start_size,
-        recent_size=args.recent_size,
+        start_size= 4, #args.start_size,
+        recent_size=64, #args.recent_size,
         k_seq_dim=k_seq_dim,
         v_seq_dim=v_seq_dim,
     )
@@ -106,9 +108,11 @@ for text in data["text"][: args.num_samples]:
         )
         print(neg_log_likelihood.item(), file=f, flush=True)
         num_eval_tokens += 1
-        if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+        # if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+        if num_eval_tokens >= MAX_NUM_EVAL_TOKENS:
             break
-    if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+    # if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+    if num_eval_tokens >= MAX_NUM_EVAL_TOKENS:
         break
 
 f.close()
