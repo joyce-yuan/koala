@@ -2,6 +2,7 @@
 # Knowledged Optimized Augmentation for Long-context Access (KOALA)
 
 6.5940 Final Project
+
 Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
 
 [[(need to update link)paper](http://arxiv.org/abs/2309.17453)] [[(change edit permissions when done)poster](https://docs.google.com/presentation/d/1-d03qa8PTlB7mmCnO_tW6KTt-8NnXcJQLrXIPtaBdQE/edit?usp=sharing)][[(need to update link) video](https://youtu.be/hvJsEzP34o8)]
