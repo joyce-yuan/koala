@@ -14,13 +14,14 @@ from tqdm import tqdm
 from streaming_llm.utils import load, download_url, load_jsonl
 from streaming_llm.enable_streaming_llm import enable_streaming_llm
 from streaming_llm.llama_index_newest import LlamaIndexKVCache
+from streaming_llm.kv_cache import StartRecentKVCache
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
 )
 
 @torch.no_grad()
-def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, kv_cache=None):
+def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, kv_cache=None, kv_cache_type="koala"):
     outputs = model(
         input_ids=input_ids,
         past_key_values=past_key_values,
@@ -68,23 +69,23 @@ def greedy_generate(model, tokenizer, input_ids, past_key_values, max_gen_len, k
     if len(generated_ids) >= max_gen_len and generated_ids[-1] != tokenizer.eos_token_id:
         print("\n[WARNING] Sequence truncated due to length limit.")
 
-    if kv_cache is not None and generated_response != "":
+    if kv_cache_type=="koala" and generated_response != "":
         kv_cache.store_text(generated_response)
     
     return past_key_values
 
 
 @torch.no_grad()
-def streaming_inference(model, tokenizer, kv_cache=None, max_gen_len=128):
+def streaming_inference(model, tokenizer, kv_cache=None, max_gen_len=128, kv_cache_type="koala"):
     past_key_values = None
     idx = 0
     while True:
-        prompt = input("Enter your prompt (or press Enter to stop): ").strip()
+        prompt = input("Enter your prompt (or press Enter to stop and type FILL to fill context window): ").strip()
         if not prompt:
             break
 
-        if prompt.lower() == "fill context window":
-            large_text = " ".join(["random text"] * 200)  # Simulate filling with a large block of text
+        if prompt.lower() == "fill":
+            large_text = " ".join(["random text"] * 250)  # Simulate filling with a large block of text
             print(f"[INFO] Filling context window with random large text.")
             input_ids = tokenizer(large_text, return_tensors="pt").input_ids.to(model.device)
             space_needed = input_ids.shape[1]
@@ -101,10 +102,9 @@ def streaming_inference(model, tokenizer, kv_cache=None, max_gen_len=128):
         input_ids = tokenizer(prompt, return_tensors="pt").input_ids
         input_ids = input_ids.to(model.device)
 
-        # Tokenize the prompt
-        input_with_context = None
-        if kv_cache is not None:
-
+        if kv_cache_type == "koala":
+            # Tokenize the prompt
+            input_with_context = None
             # Get past key values and evict for space
             if idx == 0:
                 seq_len = input_ids.shape[1]
@@ -136,17 +136,33 @@ def streaming_inference(model, tokenizer, kv_cache=None, max_gen_len=128):
                 space_needed = seq_len + max_gen_len
                 past_key_values = kv_cache.evict_for_space(past_key_values, space_needed, past_context=past_context_string)
 
-        # if input_with_context is not None:
-        #     print("prompt: ", prompt, "input_with_context: \n\n", input_with_context, "\n\n")
+            # if input_with_context is not None:
+            #     print("prompt: ", prompt, "input_with_context: \n\n", input_with_context, "\n\n")
 
-        print("Koala is thinking...")
-        past_key_values = greedy_generate(
-            model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache
-        )
-        print("Koala is done thinking!")
+            print("Koala is thinking...")
+            past_key_values = greedy_generate(
+                model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache, kv_cache_type=kv_cache_type
+            )
+            print("Koala is done thinking!")
+
+        if kv_cache_type == "start_recent":
+            space_needed = input_ids.shape[1] + max_gen_len
+            past_key_values = kv_cache.evict_for_space(past_key_values, space_needed)
+            print("Streaming starting...")
+            past_key_values = greedy_generate(
+                model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache, kv_cache_type=kv_cache_type
+            )
+            print("Streaming done!")
+        
+        if kv_cache_type == "none":
+            print("Streaming starting...")
+            past_key_values = greedy_generate(
+                model, tokenizer, input_ids, past_key_values, max_gen_len=max_gen_len, kv_cache=kv_cache, kv_cache_type=kv_cache_type
+            )
+            print("Streaming done!")
 
 
-def enable_streaming_llm_llama_index(model, start_size, recent_size):
+def enable_streaming_llm_llama_index(model, start_size, recent_size, kv_cache_type="koala"):
     if "llama" in model.config.model_type:
         k_seq_dim = v_seq_dim = 2
         from streaming_llm.pos_shift.modify_llama import (
@@ -174,12 +190,26 @@ def enable_streaming_llm_llama_index(model, start_size, recent_size):
         enable_falcon_pos_shift_attention(model)
     else:
         raise ValueError(f"got {model.config.model_type}")
-    kv_cache = LlamaIndexKVCache(
-        start_size=start_size,
-        recent_size=recent_size,
-        k_seq_dim=k_seq_dim,
-        v_seq_dim=v_seq_dim,
-    )
+    
+    if kv_cache_type == "koala":
+        print("KV cache enabled: Koala")
+        kv_cache = LlamaIndexKVCache(
+            start_size=start_size,
+            recent_size=recent_size,
+            k_seq_dim=k_seq_dim,
+            v_seq_dim=v_seq_dim,
+        )
+    elif kv_cache_type == "start_recent":
+        print("KV cache enabled: StartRecent")
+        kv_cache = StartRecentKVCache(
+            start_size=start_size,
+            recent_size=recent_size,
+            k_seq_dim=k_seq_dim,
+            v_seq_dim=v_seq_dim,
+        )
+    else:
+        kv_cache = None
+        print("KV cache disabled")
     return kv_cache
 
 def main(args):
@@ -212,15 +242,17 @@ def main(args):
 
     if args.enable_streaming:
         kv_cache = enable_streaming_llm_llama_index(
-            model, start_size=args.start_size, recent_size=args.recent_size
+            model, start_size=args.start_size, recent_size=args.recent_size, kv_cache_type=args.cache_type
         )
     else:
         kv_cache = None
+
 
     streaming_inference(
         model,
         tokenizer,
         kv_cache,
+        kv_cache_type=args.cache_type
     )
 
 
@@ -230,11 +262,13 @@ if __name__ == "__main__":
         # "--model_name_or_path", type=str, default="lmsys/vicuna-13b-v1.3"
         #  "--model_name_or_path", type=str, default="lmsys/vicuna-7b-v1.5"
         "--model_name_or_path", type=str, default="Jiayi-Pan/Tiny-Vicuna-1B"
+        # "--model_name_or_path", type=str, default="openlm-research/open_llama_3b_v2"
     )
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--enable_streaming", action="store_true")
     parser.add_argument("--start_size", type=int, default=4)
     parser.add_argument("--recent_size", type=int, default=512)
+    parser.add_argument("--cache_type", type=str, default="koala")
     args = parser.parse_args()
 
     main(args)
