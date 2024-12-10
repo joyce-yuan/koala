@@ -1,6 +1,8 @@
 
 # Knowledged Optimized Augmentation for Long-context Access (KOALA)
-By: Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
+
+6.5940 Final Project
+Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
 
 [[(need to update link)paper](http://arxiv.org/abs/2309.17453)] [[(change edit permissions when done)poster](https://docs.google.com/presentation/d/1-d03qa8PTlB7mmCnO_tW6KTt-8NnXcJQLrXIPtaBdQE/edit?usp=sharing)][[(need to update link) video](https://youtu.be/hvJsEzP34o8)]
 
@@ -25,21 +27,21 @@ Engaging with Large Language Models (LLMs) in streaming applications with long i
 
 ```bash
 
-conda  create  -yn  streaming  python=3.8
+conda create -yn streaming python=3.8
 
-conda  activate  streaming
+conda activate streaming
 
   
 
-pip  install  torch  torchvision  torchaudio
+pip install torch torchvision torchaudio
 
-pip  install  transformers==4.33.0  accelerate  datasets  evaluate  wandb  scikit-learn  scipy  sentencepiece
+pip install transformers==4.33.0 accelerate datasets evaluate wandb scikit-learn scipy sentencepiece
 
 pip install llama-index
 
   
 
-python  setup.py  develop
+python setup.py develop
 
 ```
 
@@ -50,7 +52,7 @@ python  setup.py  develop
 
 ```bash
 
-python  examples/koala_demo.py
+python examples/koala_demo.py
 
 ```
 
@@ -61,7 +63,7 @@ python  examples/koala_demo.py
 
 ```bash
 
-python  examples/eval_haystack.py
+python examples/eval_haystack.py
 
 ```
   
@@ -72,7 +74,7 @@ python  examples/eval_haystack.py
 
 ```bash
 
-python  examples/run_new_eval_long_ppl.py
+python examples/run_new_eval_long_ppl.py
 
 ```
 
@@ -80,24 +82,25 @@ python  examples/run_new_eval_long_ppl.py
 
 ## Acknowledgements
 
-  Thank you to the 6.5940 staff for all your support and a great semester.
+  Thank you to the 6.5940 staff for all your support and a great semester!
 
 ## Citation
 
   
 
-Our project was based off of the following paper for StreamingLLM
+Our project was based off the following paper for StreamingLLM
 
   
 
 ```bibtex
 
 @article{xiao2023streamingllm,
-
-title={Efficient Streaming Language Models with Attention Sinks},
-author={Xiao, Guangxuan and Tian, Yuandong and Chen, Beidi and Han, Song and Lewis, Mike},
-journal={arXiv},
-year={2023}
-}
+        title={Efficient Streaming Language Models with Attention Sinks},
+        author={Xiao, Guangxuan and Tian, Yuandong and Chen, Beidi and Han, Song and Lewis, Mike},
+        journal={arXiv},
+        year={2023}
+        }
 
 ```
+
+
