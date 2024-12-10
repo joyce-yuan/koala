@@ -75,7 +75,7 @@ python examples/eval_haystack.py
 
 ```bash
 
-python examples/run_new_eval_long_ppl.py --num_eval_tokens 1000
+python examples/final_newest_llama_eval_long.py --num_eval_tokens 1000
 
 ```
 
