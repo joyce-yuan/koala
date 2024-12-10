@@ -46,6 +46,14 @@ python setup.py develop
 
 ```
 
+### OpenAI Key
+An OpenAI Key is needed for LlamaIndex. It can be set with
+
+```bash
+
+os.environ["OPENAI_API_KEY"] =  "{key}"  
+
+```
 
 ### Run Demo Chatbot
 
@@ -79,6 +87,7 @@ python examples/final_newest_llama_eval_long.py --num_eval_tokens 1000
 
 ```
 
+Note: You can preface each Python script with `CUDA_VISIBLE_DEVICES=0` to specify a desired gpu to suit your purposes
   
 
 ## Acknowledgements
