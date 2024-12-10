@@ -12,7 +12,8 @@ Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
 
 By integrating StreamingLLM with Retrieval-Augmented Generation (RAG), we can dynamically retrieve and use relevant context that would otherwise have been evicted from the cache to allow for infinite-length inputs without sacrificing performance.
 
-  
+## Diagram
+![Koala Diagram](KOALA_diagram.jpg)
 
 ## Abstract
 
