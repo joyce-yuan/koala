@@ -5,7 +5,7 @@
 
 Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
 
-[[(need to update link)paper](http://arxiv.org/abs/2309.17453)] [[(change edit permissions when done)poster](https://docs.google.com/presentation/d/1-d03qa8PTlB7mmCnO_tW6KTt-8NnXcJQLrXIPtaBdQE/edit?usp=sharing)][[(need to update link) video](https://youtu.be/hvJsEzP34o8)]
+[[(need to update link)paper](http://arxiv.org/abs/2309.17453)] [[poster](https://github.com/joyce-yuan/koala/blob/main/figures/Tiny%20ML%20Poster%20Presentation.png)][[video demo](https://drive.google.com/file/d/10lyi-p_39HN0g5TMKyX2wNc5KysVcC3G/view?fbclid=IwZXh0bgNhZW0CMTEAAR3izV2UGjB7AeYXVD5XnRxa-TukgJGQDf8n00XkgoThDwJhXSfVAisvpWE_aem_TlXJ5Dalw_TqrzxnwFqWzA)]
 
  
 ## TL;DR
@@ -17,8 +17,7 @@ By integrating StreamingLLM with Retrieval-Augmented Generation (RAG), we can dy
 
 ## Abstract
 
-Engaging with Large Language Models (LLMs) in streaming applications with long interactions, such as multi-round dialogue, is limited by finite attention windows and losing access to past tokens. StreamingLLM introduces an efficient framework that enables LLMs trained with a finite length attention window to generalize to infinite sequence lengths. However, it lacks the ability to retrieve evicted tokens and loses previous context. To overcome this limitation, we propose deploying StreamingLLM with Retrieval-Augmented Generation (RAG) to create Knowledge Optimized Augmentation for Long-context Access (KOALA). RAG employs vectorized storage for retrieving previous or external information. Using the LlamaIndex framework for integrating LLMs with external data, we are able to dynamically reintroduce relevant evicted tokens back into the StreamingLLM cache to simulate "infinite memory". This approach enhances the capabilities of LLMs in real-time tasks, such as long-context conversations, for more robust and context-aware applications. KOALA demonstrates improved results for Needle in Haystack evaluation as well as decreased perplexity compared to StreamingLLM.
-
+Large language models (LLMs) have made significant advancements, yet they remain constrained by a finite attention window, limiting their ability to process information beyond a fixed sequence length. Efficient Streaming Language Models with Attention Sinks (StreamingLLM) partially addresses this by enabling LLMs to generalize to infinite sequence lengths without fine-tuning. However, StreamingLLM cannot access tokens that have been evicted from its cache and loses previous context. To overcome this limitation, we propose deploying StreamingLLM with Retrieval-Augmented Generation (RAG) to create Knowledge Optimized Augmentation for Long-context Access (KOALA). This hybrid approach enables dynamic retrieval of previously evicted tokens to effectively simulate "infinite memory" by reintroducing relevant information back into the model’s attention span as needed. KOALA demonstrates improved results for Needle in Haystack evaluation as well as decreased perplexity compared to StreamingLLM. This solution holds promise for LLM applications requiring sustained, contextually aware responses in real-time, long-context tasks. 
 ## Usage
 
   
