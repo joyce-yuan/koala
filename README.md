@@ -80,10 +80,17 @@ python examples/eval_haystack.py
 ### Run Perplexity Evaluation
 
   
-
+For the KOALA cache:
 ```bash
 
-python examples/final_newest_llama_eval_long.py --num_eval_tokens 1000
+python examples/koala_eval_ppl.py --num_eval_tokens 1000
+
+```
+
+For the original cache to compare:
+```bash
+
+python examples/original_eval_ppl.py --num_eval_tokens 1000
 
 ```
 
