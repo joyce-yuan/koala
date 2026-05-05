@@ -5,7 +5,7 @@
 
 Kavya Anbarasu, Gilford Ting, Sarah Wang, Jessica Xu, and Joyce Yuan
 
-[[(need to update link)paper](http://arxiv.org/abs/2309.17453)] [[poster](https://github.com/joyce-yuan/koala/blob/main/figures/Tiny%20ML%20Poster%20Presentation.png)][[video demo](https://drive.google.com/file/d/10lyi-p_39HN0g5TMKyX2wNc5KysVcC3G/view?fbclid=IwZXh0bgNhZW0CMTEAAR3izV2UGjB7AeYXVD5XnRxa-TukgJGQDf8n00XkgoThDwJhXSfVAisvpWE_aem_TlXJ5Dalw_TqrzxnwFqWzA)]
+[[paper](https://github.com/joyce-yuan/koala/blob/main/final_paper.pdf)] [[poster](https://github.com/joyce-yuan/koala/blob/main/figures/Tiny%20ML%20Poster%20Presentation.png)][[video demo](https://drive.google.com/file/d/10lyi-p_39HN0g5TMKyX2wNc5KysVcC3G/view?fbclid=IwZXh0bgNhZW0CMTEAAR3izV2UGjB7AeYXVD5XnRxa-TukgJGQDf8n00XkgoThDwJhXSfVAisvpWE_aem_TlXJ5Dalw_TqrzxnwFqWzA)]
 
  
 ## TL;DR
